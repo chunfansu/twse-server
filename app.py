@@ -8,14 +8,37 @@ CORS(app)
 
 STOCKS = ["2330", "0050"]
 
+# Full browser headers — TWSE blocks requests without these
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Referer": "https://www.twse.com.tw/zh/trading/historical/stock-day.html",
+    "X-Requested-With": "XMLHttpRequest",
+}
+
 def get_price(stock_no):
     today = datetime.now().strftime("%Y%m%d")
     url = f"https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&date={today}&stockNo={stock_no}"
-    res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+    
+    res = requests.get(url, timeout=10, headers=HEADERS)
+    
+    if res.status_code != 200:
+        raise Exception(f"HTTP {res.status_code}")
+    
+    if not res.text.strip():
+        raise Exception("Empty response from TWSE")
+
     data = res.json()
 
     if data.get("stat") != "OK" or not data.get("data"):
-        raise Exception(f"No data for {stock_no}: {data.get('stat')}")
+        # Try previous month if current month has no data yet (e.g. first day of month)
+        prev_month = datetime.now().strftime("%Y%m") + "01"
+        url2 = f"https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&date={prev_month}&stockNo={stock_no}"
+        res2 = requests.get(url2, timeout=10, headers=HEADERS)
+        data = res2.json()
+        if data.get("stat") != "OK" or not data.get("data"):
+            raise Exception(f"No data: {data.get('stat', 'unknown')}")
 
     latest = data["data"][-1]
     # Columns: [date, vol, val, open, high, low, close, change, txn]
