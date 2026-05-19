@@ -1,47 +1,47 @@
 from flask import Flask, jsonify
 from flask_cors import CORS
 import requests
+from datetime import datetime
 
 app = Flask(__name__)
-CORS(app)  # This allows your portfolio app to call this server
+CORS(app)
 
 STOCKS = ["2330", "0050"]
+
+def get_price(stock_no):
+    today = datetime.now().strftime("%Y%m%d")
+    url = f"https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&date={today}&stockNo={stock_no}"
+    res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+    data = res.json()
+
+    if data.get("stat") != "OK" or not data.get("data"):
+        raise Exception(f"No data for {stock_no}: {data.get('stat')}")
+
+    latest = data["data"][-1]
+    # Columns: [date, vol, val, open, high, low, close, change, txn]
+    close = float(latest[6].replace(",", ""))
+    try:
+        change = float(latest[7].replace(",", "").strip())
+    except:
+        change = 0.0
+
+    prev = close - change
+    change_pct = round((change / prev) * 100, 2) if prev > 0 else 0
+
+    # ROC date "115/05/18" → "05/18"
+    parts = latest[0].split("/")
+    date_label = f"{parts[1]}/{parts[2]}" if len(parts) == 3 else latest[0]
+
+    return {"price": close, "change": round(change, 2), "changePct": change_pct, "date": date_label}
 
 @app.route("/prices")
 def get_prices():
     result = {}
     for code in STOCKS:
         try:
-            url = f"https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY?stockNo={code}"
-            res = requests.get(url, timeout=10)
-            rows = res.json()
-            latest = rows[-1]  # Last row = most recent trading day
-
-            close = float(latest["ClosingPrice"].replace(",", ""))
-
-            # Parse change field (may have ▲ ▼ or +/-)
-            raw = latest["Change"].replace(",", "").strip()
-            if "▼" in raw or raw.startswith("-"):
-                change = -float(raw.replace("▼", "").replace("-", "").strip())
-            else:
-                change = float(raw.replace("▲", "").replace("+", "").strip() or "0")
-
-            prev = close - change
-            change_pct = round((change / prev) * 100, 2) if prev > 0 else 0
-
-            # Convert ROC date e.g. "1150518" → "05/18"
-            d = latest["Date"]
-            date_label = f"{d[3:5]}/{d[5:7]}" if len(d) >= 7 else d
-
-            result[code] = {
-                "price": close,
-                "change": round(change, 2),
-                "changePct": change_pct,
-                "date": date_label
-            }
+            result[code] = get_price(code)
         except Exception as e:
             result[code] = {"error": str(e)}
-
     return jsonify(result)
 
 @app.route("/")
