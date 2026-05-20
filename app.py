@@ -4,8 +4,6 @@ import requests
 from datetime import datetime
 
 app = Flask(__name__)
-
-# Explicitly allow ALL origins including claude.ai artifact sandbox
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 STOCKS = ["2330", "0050"]
@@ -33,7 +31,11 @@ def get_price(stock_no):
         raise Exception(f"TWSE stat: {data.get('stat','?')}")
 
     latest = data["data"][-1]
-    close = float(latest[6].replace(",", ""))
+    # Columns: [date, vol, val, open, high, low, close, change, txn]
+    open_p  = float(latest[3].replace(",", ""))
+    high    = float(latest[4].replace(",", ""))
+    low     = float(latest[5].replace(",", ""))
+    close   = float(latest[6].replace(",", ""))
     try:
         change = float(latest[7].replace(",", "").strip())
     except:
@@ -44,7 +46,15 @@ def get_price(stock_no):
     parts = latest[0].split("/")
     date_label = f"{parts[1]}/{parts[2]}" if len(parts) == 3 else latest[0]
 
-    return {"price": close, "change": round(change, 2), "changePct": change_pct, "date": date_label}
+    return {
+        "price":     close,
+        "open":      open_p,
+        "high":      high,
+        "low":       low,
+        "change":    round(change, 2),
+        "changePct": change_pct,
+        "date":      date_label
+    }
 
 @app.route("/prices")
 def get_prices():
@@ -55,7 +65,6 @@ def get_prices():
         except Exception as e:
             result[code] = {"error": str(e)}
 
-    # Manually set CORS headers on every response to be safe
     response = make_response(jsonify(result))
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
